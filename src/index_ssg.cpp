@@ -22,6 +22,10 @@ IndexSSG::IndexSSG(const size_t dimension, const size_t n, Metric m,
 
 IndexSSG::~IndexSSG() {}
 
+/*
+ * 
+ * 保存width，eps大小和数据，final_graph_图。图是保存每个定点数据和数据大小
+ */ 
 void IndexSSG::Save(const char *filename) {
   std::ofstream out(filename, std::ios::binary | std::ios::out);
   assert(final_graph_.size() == nd_);
@@ -82,9 +86,12 @@ void IndexSSG::Load_nn_graph(const char *filename) {
   in.close();
 }
 
+/*
+ * 用邻居的邻居做候选集。
+ */ 
 void IndexSSG::get_neighbors(const unsigned q, const Parameters &parameter,
                              std::vector<Neighbor> &pool) {
-  boost::dynamic_bitset<> flags{nd_, 0};
+  boost::dynamic_bitset<> flags{nd_, 0};//该节点是否访问过的标识。
   unsigned L = parameter.Get<unsigned>("L");
   flags[q] = true;
   for (unsigned i = 0; i < final_graph_[q].size(); i++) {
@@ -111,10 +118,11 @@ void IndexSSG::get_neighbors(const float *query, const Parameters &parameter,
   std::vector<unsigned> init_ids(L);
   // initializer_->Search(query, nullptr, L, parameter, init_ids.data());
   std::mt19937 rng(rand());
-  GenRandom(rng, init_ids.data(), L, (unsigned)nd_);
+  GenRandom(rng, init_ids.data(), L, (unsigned)nd_);//生成L个随机数放入到init_ids
 
   boost::dynamic_bitset<> flags{nd_, 0};
   L = 0;
+  // 随机挑L个点，计算与query的距离
   for (unsigned i = 0; i < init_ids.size(); i++) {
     unsigned id = init_ids[i];
     if (id >= nd_) continue;
@@ -158,6 +166,9 @@ void IndexSSG::get_neighbors(const float *query, const Parameters &parameter,
   }
 }
 
+/*
+ * 这个函数没什么用。在nsg里用来生成ep_的。但是在ssg里，ep_没用。所以这个函数没什么用。
+ */ 
 void IndexSSG::init_graph(const Parameters &parameters) {
   float *center = new float[dimension_];
   for (unsigned j = 0; j < dimension_; j++) center[j] = 0;
@@ -186,6 +197,7 @@ void IndexSSG::sync_prune(unsigned q, std::vector<Neighbor> &pool,
   for (unsigned i = 0; i < pool.size(); ++i) {
     flags[pool[i].id] = 1;
   }
+  // 先把q的邻居加入到候选集pool，pool里之前已经有q的邻居的邻居了
   for (unsigned nn = 0; nn < final_graph_[q].size(); nn++) {
     unsigned id = final_graph_[q][nn];
     if (flags[id]) continue;
@@ -213,6 +225,15 @@ void IndexSSG::sync_prune(unsigned q, std::vector<Neighbor> &pool,
                                      (unsigned)dimension_);
       float cos_ij = (p.distance + result[t].distance - djk) / 2 /
                      sqrt(p.distance * result[t].distance);
+      /* 
+      也就是说已经存在在result里面的点r（也就是说已经和q有边了）、q、候选点p三点形成的三角形里。
+      如果pq是长边，那么p不应该加到q的result里。因为ssg的定义就是: cone(pq)必定包含r，而pr已经有边了，所以pv不应该有边。
+      除此之外其他的情况都可以做边。
+          p
+           。   t
+            。 /    
+             q
+      */
       if (cos_ij > threshold) {
         occlude = true;
         break;
